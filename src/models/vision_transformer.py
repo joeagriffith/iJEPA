@@ -224,6 +224,7 @@ class VisionTransformerPredictor(nn.Module):
         num_patches,
         embed_dim=768,
         predictor_embed_dim=384,
+        num_registers=8,
         depth=6,
         num_heads=12,
         mlp_ratio=4.0,
@@ -247,6 +248,8 @@ class VisionTransformerPredictor(nn.Module):
                                                       int(num_patches**.5),
                                                       cls_token=False)
         self.predictor_pos_embed.data.copy_(torch.from_numpy(predictor_pos_embed).float().unsqueeze(0))
+        # --
+        self.registers = nn.Parameter(torch.empty(1, num_registers, embed_dim).normal_(0, 0.02), requires_grad=True)
         # --
         self.predictor_blocks = nn.ModuleList([
             Block(
@@ -314,10 +317,16 @@ class VisionTransformerPredictor(nn.Module):
         x = x.repeat(len(masks), 1, 1)
         x = torch.cat([x, pred_tokens], dim=1)
 
+        # -- add registers to x
+        x = torch.cat([x, self.registers.repeat(B, 1, 1)], dim=1)
+
         # -- fwd prop
         for blk in self.predictor_blocks:
             x = blk(x)
         x = self.predictor_norm(x)
+
+        # -- remove registers
+        x = x[:, :-self.registers.size(1)]
 
         # -- return preds for mask tokens
         x = x[:, N_ctxt:]
@@ -335,6 +344,7 @@ class VisionTransformer(nn.Module):
         in_chans=3,
         embed_dim=768,
         predictor_embed_dim=384,
+        num_registers=8,
         depth=12,
         predictor_depth=12,
         num_heads=12,
@@ -364,6 +374,8 @@ class VisionTransformer(nn.Module):
                                             int(self.patch_embed.num_patches**.5),
                                             cls_token=False)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+        # --
+        self.registers = nn.Parameter(torch.empty(1, num_registers, embed_dim).normal_(0, 0.02), requires_grad=True)
         # --
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
@@ -411,6 +423,9 @@ class VisionTransformer(nn.Module):
         pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
         x = x + pos_embed
 
+        # -- add registers to x
+        x = torch.cat([x, self.registers.repeat(B, 1, 1)], dim=1)
+
         # -- mask x
         if masks is not None:
             x = apply_masks(x, masks)
@@ -418,6 +433,9 @@ class VisionTransformer(nn.Module):
         # -- fwd prop
         for i, blk in enumerate(self.blocks):
             x = blk(x)
+        
+        # -- remove registers
+        x = x[:, :-self.registers.size(1)]
 
         if self.norm is not None:
             x = self.norm(x)

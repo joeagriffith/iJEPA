@@ -29,7 +29,7 @@ class MaskCollator(object):
         nenc=1,
         npred=2,
         min_keep=4,
-        allow_overlap=False
+        allow_overlap=True
     ):
         super(MaskCollator, self).__init__()
         if not isinstance(input_size, tuple):
